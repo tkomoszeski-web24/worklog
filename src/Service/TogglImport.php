@@ -23,6 +23,7 @@ final class TogglImport
         private readonly TogglClient $toggl,
         private readonly Settings $settings,
         private readonly WorkDayRepository $days,
+        private readonly ReportBuilder $reports,
     ) {
     }
 
@@ -50,8 +51,10 @@ final class TogglImport
         usort($existing, static fn (WorklogEntry $a, WorklogEntry $b): int => $a->getPosition() <=> $b->getPosition());
 
         $titles = null;
-        $new = $updated = $seconds = 0;
+        $new = $updated = 0;
         $claimed = [];
+        $touched = []; // wiersze, którym ten import ustawił czas: [wiersz, sekundy grupy]
+        $stopperSkipped = false;
         foreach ($groups as $group) {
             // wiersze, które powstały z tych samych wpisów Toggla (np. po ujednoliceniu opisu w Togglu)
             $matches = [];
@@ -68,6 +71,7 @@ final class TogglImport
                     if ($m->isTimerRunning()) {
                         $messages[] = ['type' => 'warning', 'message' => sprintf('Przy tickecie %s działa stoper aplikacji – czasu z Toggla nie zmieniono. Zatrzymaj stoper i pobierz ponownie.', $m->getIssueKey())];
                         $claimed = array_merge($claimed, array_keys($matches));
+                        $stopperSkipped = true;
                         continue 2;
                     }
                 }
@@ -94,7 +98,7 @@ final class TogglImport
                 $row->setIssueTitle($titles[$group['key']] ?? '');
                 ++$new;
             }
-            $seconds += $group['seconds'];
+            $touched[] = [$row, $group['seconds']];
         }
 
         // wiersze z Toggla, których wpisów już tam nie ma – zostają bez zmian
@@ -109,6 +113,12 @@ final class TogglImport
             $messages[] = ['type' => 'info', 'message' => sprintf('Godziny obecności z Toggla: %s–%s.', $hours['start'], $hours['end'])];
         }
 
+        $closeMessage = $this->closeToPresence($day, $touched, $stopperSkipped);
+        if (null !== $closeMessage) {
+            $messages[] = ['type' => 'info', 'message' => $closeMessage];
+        }
+        $minutes = array_sum(array_map(static fn (array $t): int => $t[0]->getMinutes(), $touched));
+
         if (0 === $seen) {
             array_unshift($messages, ['type' => 'info', 'message' => 'Toggl nie ma wpisów z tego dnia.']);
         } elseif ($new + $updated > 0) {
@@ -120,10 +130,59 @@ final class TogglImport
                 $parts[] = Template::plural($updated, 'zaktualizowany', 'zaktualizowane', 'zaktualizowanych');
             }
             array_unshift($messages, ['type' => 'success', 'message' => sprintf('Pobrano z Toggla: %s (%s) – razem %s.',
-                Template::plural($new + $updated, 'wpis', 'wpisy', 'wpisów'), implode(', ', $parts), TimeFormat::format(intdiv($seconds, 60)))]);
+                Template::plural($new + $updated, 'wpis', 'wpisy', 'wpisów'), implode(', ', $parts), TimeFormat::format($minutes))]);
         }
 
         return $messages;
+    }
+
+    /**
+     * Domyka sumę wierszy z tego importu do obecności dnia: brakujące (albo nadmiarowe po zaokrągleniach w górę)
+     * minuty rozdziela między wiersze według największej reszty sekund. Tylko gdy różnica względem zwykłego
+     * zaokrąglenia mieści się w progu z ustawień; większa to realna przerwa albo wpis bez ticketu – zostaje widoczna.
+     * Zwraca komunikat, gdy coś zmieniono.
+     *
+     * @param list<array{0: WorklogEntry, 1: int}> $touched
+     */
+    private function closeToPresence(WorkDay $day, array $touched, bool $stopperSkipped): ?string
+    {
+        $limit = $this->settings->int('toggl_close_minutes');
+        $presence = $this->reports->summary($day)->presenceMinutes;
+        if (null === $presence || $limit <= 0 || [] === $touched || $stopperSkipped) {
+            return null;
+        }
+
+        $touchedRows = array_map(static fn (array $t): WorklogEntry => $t[0], $touched);
+        $untouched = 0;
+        foreach ($day->getActiveEntries() as $entry) {
+            if (!in_array($entry, $touchedRows, true)) {
+                $untouched += $entry->getMinutes();
+            }
+        }
+
+        $base = $remainder = [];
+        foreach ($touched as $i => [, $seconds]) {
+            $base[$i] = intdiv($seconds, 60);
+            $remainder[$i] = $seconds % 60;
+        }
+        $rounded = array_sum(array_map(static fn (array $t): int => TimeFormat::roundToMinutes($t[1]), $touched));
+        $diff = $presence - ($rounded + $untouched);
+        $need = $presence - $untouched - array_sum($base);
+        if (abs($diff) > $limit || $need < 0) {
+            return null;
+        }
+
+        $order = array_keys($touched);
+        usort($order, static fn (int $a, int $b): int => [$remainder[$b], $a] <=> [$remainder[$a], $b]);
+        $extra = array_fill_keys($order, 0);
+        for ($k = 0; $k < $need; ++$k) {
+            ++$extra[$order[$k % count($order)]];
+        }
+        foreach ($touched as $i => [$row, $seconds]) {
+            $row->setTrackedSeconds($seconds, $base[$i] + $extra[$i]);
+        }
+
+        return 0 === $diff ? null : sprintf('Domknięto czas do obecności (%s): %+d min w wierszach z Toggla.', TimeFormat::format($presence), $diff);
     }
 
     /**
@@ -135,7 +194,7 @@ final class TogglImport
      */
     private function startClock(WorkDay $day, array $group, array &$messages): ?string
     {
-        $minutes = intdiv($group['seconds'], 60);
+        $minutes = TimeFormat::roundToMinutes($group['seconds']);
         $from = TimeFormat::clockToMinutes($group['clock']);
         if (null === $from || 0 === $minutes) {
             return $group['clock'];
@@ -238,13 +297,13 @@ final class TogglImport
                 $text = str_starts_with(mb_strtoupper(ltrim($description)), $key) ? Template::issueTitleAfterKey($description) : $description;
             }
             if (null === $key) {
-                $skipped[] = sprintf('„%s” %s', '' !== $description ? $description : 'bez opisu', TimeFormat::format(max(1, intdiv($duration, 60))));
+                $skipped[] = sprintf('„%s” %s', '' !== $description ? $description : 'bez opisu', TimeFormat::format(max(1, TimeFormat::roundToMinutes($duration))));
                 continue;
             }
 
             if ($running) {
                 $messages[] = ['type' => 'warning', 'message' => sprintf('Stoper w Togglu nadal działa („%s”) – doliczono %s do tej chwili; po zatrzymaniu pobierz ponownie.',
-                    '' !== $description ? $description : 'bez opisu', TimeFormat::format(intdiv($duration, 60)))];
+                    '' !== $description ? $description : 'bez opisu', TimeFormat::format(TimeFormat::roundToMinutes($duration)))];
             }
 
             $id = $key."\0".$text;

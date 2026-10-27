@@ -57,6 +57,7 @@ final class Settings
         'balance_source' => 'presence',
         'norm_minutes' => '420',
         'tolerance_minutes' => '0',
+        'toggl_close_minutes' => '5',
         'signature' => '',
 
         // Przypomnienie (pon–pt); puste = wyłączone

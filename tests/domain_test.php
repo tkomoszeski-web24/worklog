@@ -40,6 +40,7 @@ foreach ([
 check('format 90', TimeFormat::format(90), '1h 30m');
 check('format 45', TimeFormat::format(45), '45m');
 check('format 120', TimeFormat::format(120), '2h');
+ foreach ([[29, 0], [30, 1], [89, 1], [90, 2], [2875, 48], [3484, 58], [0, 0], [-100, 0]] as [$sec, $exp]) { check("roundToMinutes $sec", TimeFormat::roundToMinutes($sec), $exp); }
 check('format -75', TimeFormat::format(-75), '-1h 15m');
 check('clock 8:05', TimeFormat::normalizeClock('8:05'), '08:05');
 check('clock 8.05', TimeFormat::normalizeClock('8.05'), '08:05');

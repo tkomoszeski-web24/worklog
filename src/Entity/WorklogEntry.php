@@ -2,6 +2,7 @@
 
 namespace App\Entity;
 
+use App\Domain\TimeFormat;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
@@ -66,7 +67,11 @@ class WorklogEntry
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $timerStoppedAt = null;
 
-    /** Sekundy ze stopera, które nie złożyły się jeszcze w pełną minutę (0–59) – kolejne sesje je dopełniają. */
+    /**
+     * Sekundy, które nie złożyły się w pełną minutę – kolejne sesje stopera je dopełniają. Ze stopera 0–59,
+     * po imporcie z Toggla (zaokrąglenie do najbliższej minuty) −30…29, po domknięciu do obecności także dalej
+     * (np. −59…+59): minutes*60 + carrySeconds to zawsze dokładny czas.
+     */
     #[ORM\Column(options: ['default' => 0])]
     private int $carrySeconds = 0;
 
@@ -136,14 +141,17 @@ class WorklogEntry
     }
 
     /**
-     * Ustawia czas z sekund (np. z Toggla): pełne minuty + reszta w carrySeconds.
-     * Inaczej niż update() nie zeruje reszty, więc 12m 30s + 17m 30s dalej daje 30m.
+     * Ustawia czas z sekund (np. z Toggla): minuty zaokrąglone do najbliższej pełnej, a różnica do dokładnego
+     * czasu w carrySeconds (−30…29, może być ujemna). Inaczej niż update() nie zeruje reszty,
+     * więc minutes*60 + carrySeconds dalej równa się sekundom z Toggla, a stoper aplikacji dolicza do nich dokładnie.
+     * Podane $minutes (domknięcie dnia do obecności) zastępuje zaokrąglenie; carry to wtedy $seconds − $minutes*60
+     * i może wyjść poza −30…29.
      */
-    public function setTrackedSeconds(int $seconds): void
+    public function setTrackedSeconds(int $seconds, ?int $minutes = null): void
     {
         $seconds = max(0, $seconds);
-        $this->minutes = intdiv($seconds, 60);
-        $this->carrySeconds = $seconds % 60;
+        $this->minutes = null !== $minutes ? max(0, $minutes) : TimeFormat::roundToMinutes($seconds);
+        $this->carrySeconds = $seconds - $this->minutes * 60;
     }
 
     /** @return list<int> */

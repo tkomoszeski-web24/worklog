@@ -99,6 +99,12 @@ final class TimeFormat
         return $spec['minutes'] + array_sum(array_map(static fn (array $r) => $r[1] - $r[0], $spec['ranges']));
     }
 
+    /** Sekundy na najbliższą pełną minutę: reszta od 30 s w górę, poniżej w dół. Ujemne traktuje jak 0. */
+    public static function roundToMinutes(int $seconds): int
+    {
+        return intdiv(max(0, $seconds) + 30, 60);
+    }
+
     public static function format(int $minutes): string
     {
         $sign = $minutes < 0 ? '-' : '';

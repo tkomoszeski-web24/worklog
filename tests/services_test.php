@@ -599,7 +599,7 @@ namespace {
         public function __construct() {}
         public function knownIssueTitles(?\DateTimeImmutable $since = null): array { return ['ABC-9' => 'Moduł raportów']; }
     };
-    $import = new App\Service\TogglImport($tClient, $tsettings, $titleRepo);
+    $import = new App\Service\TogglImport($tClient, $tsettings, $titleRepo, new ReportBuilder($tsettings, $cal));
 
     // komunikaty importu bez informacji o godzinach obecności (te mają osobne testy)
     $msgs = static fn (array $res): array => array_values(array_map(fn ($r) => $r['type'].': '.$r['message'],
@@ -633,9 +633,9 @@ namespace {
     $r1->setIssueTitle('Własny tytuł');
     $tHttp->routes['/me/time_entries'] = [200, $togglEntries(900)];
     $res = $import->import($tday);
-    check('reimport: komunikat', $res[0], ['type' => 'success', 'message' => 'Pobrano z Toggla: 3 wpisy (3 zaktualizowane) – razem 1h 47m.']);
+    check('reimport: komunikat', $res[0], ['type' => 'success', 'message' => 'Pobrano z Toggla: 3 wpisy (3 zaktualizowane) – razem 1h 48m.']);
     check('reimport: bez duplikatów', count($tday->getActiveEntries()), 4);
-    check('reimport: czas z resztą (900+1050 s)', [$r1->getMinutes(), $r1->getCarrySeconds()], [32, 30]);
+    check('reimport: czas zaokrąglony (900+1050 s = 32m 30s → 33m)', [$r1->getMinutes(), $r1->getCarrySeconds()], [33, -30]);
     check('reimport: ticket/opis/tytuł z aplikacji zostają', [$r1->getIssueKey(), $r1->getDescription(), $r1->getIssueTitle()], ['ABC-124', 'zmieniony opis', 'Własny tytuł']);
 
     // stoper aplikacji przy wierszu: czasu nie ruszamy
@@ -644,6 +644,13 @@ namespace {
     $tHttp->routes['/me/time_entries'] = [200, $togglEntries(750)];
     $res = $import->import($tday);
     check('reimport: stoper aplikacji', [$r2->getMinutes(), in_array(['type' => 'warning', 'message' => 'Przy tickecie ABC-9 działa stoper aplikacji – czasu z Toggla nie zmieniono. Zatrzymaj stoper i pobierz ponownie.'], $res, true)], [1, true]);
+
+    // poniższe testy sprawdzają samo zaokrąglanie – domykanie do obecności ma osobną sekcję niżej
+    $setClose = static function (string $minutes) use ($tsettings): void {
+        $c = new ReflectionProperty(Settings::class, 'cache');
+        $c->setValue($tsettings, ['toggl_close_minutes' => $minutes] + $c->getValue($tsettings));
+    };
+    $setClose('0');
 
     // działający stoper w Togglu (duration < 0, brak stop) jest doliczany do chwili pobrania
     $tHttp->routes['/me/time_entries'] = [200, [
@@ -654,19 +661,129 @@ namespace {
     $res = $import->import($dRun, new DateTimeImmutable('2026-10-20 16:17:30'));
     [$rr] = $dRun->getActiveEntries();
     check('stoper Toggla – komunikaty', $msgs($res), [
-        'success: Pobrano z Toggla: 1 wpis (1 nowy) – razem 37m.',
-        'warning: Stoper w Togglu nadal działa („TER-379 workery kolejek”) – doliczono 17m do tej chwili; po zatrzymaniu pobierz ponownie.',
+        'success: Pobrano z Toggla: 1 wpis (1 nowy) – razem 38m.',
+        'warning: Stoper w Togglu nadal działa („TER-379 workery kolejek”) – doliczono 18m do tej chwili; po zatrzymaniu pobierz ponownie.',
     ]);
-    check('stoper Toggla – 20m + 17m 30s w jednej grupie', [$rr->getMinutes(), $rr->getCarrySeconds(), $rr->getTogglIds(), $rr->getStartClock()], [37, 30, [40, 41], '14:00']);
+    check('stoper Toggla – 20m + 17m 30s w jednej grupie', [$rr->getMinutes(), $rr->getCarrySeconds(), $rr->getTogglIds(), $rr->getStartClock()], [38, -30, [40, 41], '14:00']);
     $import->import($dRun, new DateTimeImmutable('2026-10-20 16:25:00'));
     check('stoper Toggla – kolejne pobranie podnosi czas bez duplikatu', [count($dRun->getActiveEntries()), $rr->getMinutes(), $rr->getCarrySeconds()], [1, 45, 0]);
     check('stoper Toggla – obecność do „teraz”', [$dRun->getStartTime(), $dRun->getEndTime()], ['14:00', '16:25']);
-    // krócej niż minuta: sekundy w carrySeconds
+    // krócej niż minuta: zaokrąglenie do najbliższej minuty, różnica w carrySeconds
     $tHttp->routes['/me/time_entries'] = [200, [$te(42, 'TER-380 nowe', '2026-10-20T14:00:00+00:00', -1)]];
     $dShort = new WorkDay(new DateTimeImmutable('2026-10-20'));
     $import->import($dShort, new DateTimeImmutable('2026-10-20 16:00:40'));
     [$rs] = $dShort->getActiveEntries();
-    check('stoper Toggla – poniżej minuty', [$rs->getMinutes(), $rs->getCarrySeconds()], [0, 40]);
+    check('stoper Toggla – poniżej minuty', [$rs->getMinutes(), $rs->getCarrySeconds()], [1, -20]);
+
+    // zaokrąglanie do najbliższej minuty: 47m 55s → 48m, carry −5; ponowny import to samo; stoper aplikacji liczy dokładnie
+    $tHttp->routes['/me/time_entries'] = [200, [$te(50, 'TER-381 zaokrąglenie', '2026-10-20T14:00:00+00:00', 2875)]];
+    $dRound = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $res = $import->import($dRound);
+    [$ro] = $dRound->getActiveEntries();
+    check('zaokrąglanie: 2875 s → 48m, carry -5', [$ro->getMinutes(), $ro->getCarrySeconds(), $ro->liveSeconds(new DateTimeImmutable())], [48, -5, 2875]);
+    check('zaokrąglanie: komunikat „razem” = minuty wiersza', $msgs($res)[0], 'success: Pobrano z Toggla: 1 wpis (1 nowy) – razem 48m.');
+    $import->import($dRound);
+    check('zaokrąglanie: ponowny import bez zmian', [count($dRound->getActiveEntries()), $ro->getMinutes(), $ro->getCarrySeconds()], [1, 48, -5]);
+    $ro->addTrackedSeconds(5);
+    check('zaokrąglanie: stoper +5 s → dokładnie 48m', [$ro->getMinutes(), $ro->getCarrySeconds()], [48, 0]);
+    $ro->setTrackedSeconds(2875);
+    $ro->addTrackedSeconds(5);
+    $ro->addTrackedSeconds(65);
+    check('zaokrąglanie: stoper +5 s +65 s → 49m 5s', [$ro->getMinutes(), $ro->getCarrySeconds()], [49, 5]);
+    // kilka wierszy: „razem” to suma zaokrąglonych wierszy
+    $tHttp->routes['/me/time_entries'] = [200, [
+        $te(51, 'TER-1 a', '2026-10-20T07:00:00+00:00', 1790),
+        $te(52, 'TER-2 b', '2026-10-20T08:00:00+00:00', 1790),
+        $te(53, 'TER-3 c', '2026-10-20T09:00:00+00:00', 1790),
+    ]];
+    $dSum = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $res = $import->import($dSum);
+    check('zaokrąglanie: „razem” = suma minut wierszy', [array_sum(array_map(fn ($r) => $r->getMinutes(), $dSum->getActiveEntries())), $msgs($res)[0]],
+        [90, 'success: Pobrano z Toggla: 3 wpisy (3 nowe) – razem 1h 30m.']);
+
+    // --- domykanie czasu do obecności ---
+    $setClose('5');
+    check('toggl_close_minutes domyślnie 5', Settings::DEFAULTS['toggl_close_minutes'], '5');
+    check('toggl_close_minutes: walidacja liczb całkowitych jak tolerancja', str_contains(file_get_contents(__DIR__.'/../src/Controller/SettingsController.php'), "'tolerance_minutes', 'toggl_close_minutes', 'plan_notice_hours'] as \$k"), true);
+    // 7 wpisów ciągiem od 08:34:50 (lokalnie), razem 3h 6m 12s; obecność 08:34–11:41 = 187 min, obiad 12–13 poza zakresem
+    $closeDurations = [1114, 2094, 509, 3163, 1044, 787, 2461];
+    $closeEntries = static function (array $durations, int $gapAfterFirst = 0) use ($te): array {
+        $t = new DateTimeImmutable('2026-10-20T06:34:50+00:00');
+        $out = [];
+        foreach ($durations as $i => $d) {
+            if (1 === $i) {
+                $t = $t->modify('+'.$gapAfterFirst.' seconds');
+            }
+            $out[] = $te(200 + $i, 'CLS-'.($i + 1).' zadanie', $t->format('c'), $d);
+            $t = $t->modify('+'.$d.' seconds');
+        }
+        return $out;
+    };
+    $minutesOf = static fn (WorkDay $d): array => array_map(fn ($r) => $r->getMinutes(), $d->getActiveEntries());
+    $tHttp->routes['/me/time_entries'] = [200, $closeEntries($closeDurations)];
+    $dc1 = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $res = $import->import($dc1);
+    check('domykanie: minuty trafiają do wierszy z największą resztą (54, 43, 34, 29)', $minutesOf($dc1), [19, 35, 9, 53, 17, 13, 41]);
+    check('domykanie: suma = obecność, komunikaty', [array_sum($minutesOf($dc1)), $dc1->getStartTime(), $dc1->getEndTime(), $msgs($res)], [187, '08:34', '11:41', [
+        'success: Pobrano z Toggla: 7 wpisów (7 nowych) – razem 3h 7m.',
+        'info: Domknięto czas do obecności (3h 7m): +1 min w wierszach z Toggla.',
+    ]]);
+    check('domykanie: minutes*60 + carry = sekundy grupy', array_map(fn ($r) => $r->getMinutes() * 60 + $r->getCarrySeconds(), $dc1->getActiveEntries()), $closeDurations);
+    $before = array_map(fn ($r) => [$r->getMinutes(), $r->getCarrySeconds()], $dc1->getActiveEntries());
+    $res = $import->import($dc1);
+    check('domykanie: ponowny import nic nie zmienia i nie dubluje', [count($dc1->getActiveEntries()), array_map(fn ($r) => [$r->getMinutes(), $r->getCarrySeconds()], $dc1->getActiveEntries())], [7, $before]);
+    check('domykanie: ponowny import – ten sam komunikat', $msgs($res)[1], 'info: Domknięto czas do obecności (3h 7m): +1 min w wierszach z Toggla.');
+    // różnica 0 – wynik identyczny ze zwykłym zaokrągleniem, bez komunikatu
+    $tHttp->routes['/me/time_entries'] = [200, [$te(250, 'CLS-1 a', '2026-10-20T07:00:00+00:00', 1829), $te(251, 'CLS-2 b', '2026-10-20T07:30:29+00:00', 1771)]]; // 09:00–10:00 = 60 min, 30m29s + 29m31s
+    $dz = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $res = $import->import($dz);
+    check('domykanie: różnica 0 = zaokrąglenie, bez komunikatu', [$minutesOf($dz), count($msgs($res))], [[30, 30], 1]);
+
+    // przerwa 15 min bez stopera – różnica poza progiem, zostaje zaokrąglenie
+    $tHttp->routes['/me/time_entries'] = [200, $closeEntries($closeDurations, 900)];
+    $dgap = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $res = $import->import($dgap);
+    check('domykanie: duża różnica (przerwa 15 min) – bez domykania i bez komunikatu', [$minutesOf($dgap), $dgap->getEndTime(), count($msgs($res))], [[19, 35, 8, 53, 17, 13, 41], '11:56', 1]);
+    // próg 0 – wyłączone
+    $setClose('0');
+    $tHttp->routes['/me/time_entries'] = [200, $closeEntries($closeDurations)];
+    $doff = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $res = $import->import($doff);
+    check('domykanie: próg 0 – bez domykania', [$minutesOf($doff), count($msgs($res))], [[19, 35, 8, 53, 17, 13, 41], 1]);
+    $setClose('5');
+
+    // różnica ujemna: wiersz zaokrąglony w górę oddaje minutę
+    $tHttp->routes['/me/time_entries'] = [200, [$te(260, 'CLS-1 a', '2026-10-20T06:00:00+00:00', 1830)]]; // 08:00–08:30 = 30 min, wiersz 30m30s
+    $dneg = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $res = $import->import($dneg);
+    [$rn] = $dneg->getActiveEntries();
+    check('domykanie: ujemna różnica cofa zaokrąglenie w górę', [$rn->getMinutes(), $rn->getCarrySeconds(), $msgs($res)[1]], [30, 30, 'info: Domknięto czas do obecności (30m): -1 min w wierszach z Toggla.']);
+    // ujemna różnica bez wierszy zaokrąglonych w górę – bez domykania
+    $tHttp->routes['/me/time_entries'] = [200, [$te(261, 'CLS-1 a', '2026-10-20T06:00:00+00:00', 1800)]]; // 30 min
+    $dneg2 = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    new WorklogEntry($dneg2, 'CLS-9', 1, 'ręczny', 0);
+    $res = $import->import($dneg2);
+    check('domykanie: ujemna różnica bez zaokrągleń w górę – bez domykania', [$minutesOf($dneg2), count($msgs($res))], [[1, 30], 1]);
+
+    // wiersz ręczny liczy się do sumy, ale nie dostaje minut
+    $tHttp->routes['/me/time_entries'] = [200, $closeEntries($closeDurations)];
+    $dman = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $manualRow = new WorklogEntry($dman, 'CLS-9', 3, 'ręczny', 0);
+    $res = $import->import($dman);
+    check('domykanie: wiersz ręczny nietknięty, reszta dopełniona do obecności', [$manualRow->getMinutes(), array_sum($minutesOf($dman)), array_slice($minutesOf($dman), 1)], [3, 187, [18, 35, 8, 52, 17, 13, 41]]);
+    check('domykanie: komunikat z ręcznym wierszem', $msgs($res)[1], 'info: Domknięto czas do obecności (3h 7m): -2 min w wierszach z Toggla.');
+
+    // stoper aplikacji w imporcie – bez domykania
+    $tHttp->routes['/me/time_entries'] = [200, $closeEntries($closeDurations)];
+    $dtm = new WorkDay(new DateTimeImmutable('2026-10-20'));
+    $import->import($dtm);
+    $dtm->getActiveEntries()[0]->startTimer(new DateTimeImmutable('2026-10-20 12:00'));
+    $dtm->getActiveEntries()[0]->setTrackedSeconds(1114);
+    foreach (array_slice($dtm->getActiveEntries(), 1) as $r) { $r->setTrackedSeconds(60); }
+    $res = $import->import($dtm);
+    check('domykanie: stoper aplikacji – pozostałe wiersze tylko zaokrąglone', array_slice($minutesOf($dtm), 1), [35, 8, 53, 17, 13, 41]);
+    check('domykanie: stoper aplikacji – brak komunikatu o domknięciu', count(array_filter($msgs($res), fn ($m) => str_contains($m, 'Domknięto'))), 0);
+    $setClose('0');
 
     // wiersz usunięty w aplikacji wraca przy ponownym imporcie jako nowy; wiersz deleted=true (czeka na skasowanie z Jiry) nie jest dopasowywany ani wskrzeszany
     $tHttp->routes['/me/time_entries'] = [200, [
