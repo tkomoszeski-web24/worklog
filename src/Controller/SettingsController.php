@@ -38,7 +38,7 @@ final class SettingsController extends AbstractController
         ],
         'Toggl' => [
             'toggl_token' => ['Token API Toggl Track', 'password', 'Toggl Track → avatar → Profile settings → na dole „API Token”. Zostaw puste, żeby nie zmieniać.'],
-            'toggl_close_minutes' => ['Domykanie czasu z Toggla do obecności (minuty)', 'number', 'Po pobraniu z Toggla brakujące minuty (do tylu) są rozdzielane między wiersze, żeby suma ticketów równała się obecności – znikają różnice z zaokrągleń i sekundowych luk między wpisami. 0 = wyłączone.'],
+            'toggl_close_minutes' => ['Domykanie do obecności (minuty)', 'number', 'Po pobraniu z Toggla brakujące minuty (do tylu) są rozdzielane między wiersze, żeby suma ticketów równała się obecności – znikają różnice z zaokrągleń i sekundowych luk między wpisami. 0 = wyłączone.'],
         ],
         'Dzień pracy' => [
             'default_start' => ['Domyślna godzina rozpoczęcia', 'time', 'Od tej godziny liczone są godziny „started” worklogów, jeśli nie podasz godziny dnia.'],

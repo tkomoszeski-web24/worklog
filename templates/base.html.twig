@@ -286,8 +286,11 @@
         .tc-bars i { position: static !important; flex: 1; border-radius: 2px 2px 0 0 !important; background: linear-gradient(180deg, var(--t-a2), var(--t-a)); }
         .tc-game { margin-top: -6px; font-size: 12px; font-weight: 450; line-height: 1.35; color: var(--muted); }
         .theme-card input:checked ~ .tc-name::after { content: " ✓"; color: var(--t-a); }
-        .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0 18px; }
+        .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); grid-auto-rows: auto; gap: 0 18px; }
         .fields .field.wide { grid-column: 1 / -1; }
+        /* zwykłe pola dzielą wiersze siatki (etykieta / kontrolka / pomoc), więc inputy w jednym rzędzie leżą w jednej linii niezależnie od długości etykiet */
+        .fields .field:not(.wide) { display: grid; grid-template-rows: subgrid; grid-row: span 3; row-gap: 0; }
+        .fields .field[hidden] { display: none; }
         fieldset { scroll-margin-top: 86px; }
         .savefloat { position: sticky; bottom: 14px; z-index: 3; display: flex; justify-content: flex-end; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px;
             background: color-mix(in srgb, var(--panel) 80%, transparent) padding-box, linear-gradient(180deg, var(--edge), var(--edge-low)) border-box;
