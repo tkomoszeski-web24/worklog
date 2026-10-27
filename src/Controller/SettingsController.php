@@ -38,12 +38,12 @@ final class SettingsController extends AbstractController
         ],
         'Toggl' => [
             'toggl_token' => ['Token API Toggl Track', 'password', 'Toggl Track → avatar → Profile settings → na dole „API Token”. Zostaw puste, żeby nie zmieniać.'],
+            'toggl_close_minutes' => ['Domykanie czasu z Toggla do obecności (minuty)', 'number', 'Po pobraniu z Toggla brakujące minuty (do tylu) są rozdzielane między wiersze, żeby suma ticketów równała się obecności – znikają różnice z zaokrągleń i sekundowych luk między wpisami. 0 = wyłączone.'],
         ],
         'Dzień pracy' => [
             'default_start' => ['Domyślna godzina rozpoczęcia', 'time', 'Od tej godziny liczone są godziny „started” worklogów, jeśli nie podasz godziny dnia.'],
             'default_end' => ['Domyślna godzina zakończenia', 'time', ''],
             'balance_source' => ['Bilans dnia liczony z', 'select', 'Obecność: od–do minus obiad i przerwy – gdy godziny wpisujesz ręcznie. Czas w ticketach: suma wierszy – gdy mierzysz wszystko stoperem, np. w Togglu; godziny od–do służą wtedy tylko do maila i do godzin worklogów w Jirze.'],
-            'toggl_close_minutes' => ['Domykanie czasu z Toggla do obecności (minuty)', 'number', 'Po pobraniu z Toggla brakujące minuty (do tylu) są rozdzielane między wiersze, żeby suma ticketów równała się obecności – znikają różnice z zaokrągleń i sekundowych luk między wpisami. 0 = wyłączone.'],
             'lunch_from' => ['Stała przerwa (obiad) – od', 'time', 'Odliczana automatycznie w części przypadającej na godziny pracy; worklogi w Jirze ją omijają. Oba pola puste = bez stałej przerwy.'],
             'lunch_to' => ['Stała przerwa (obiad) – do', 'time', ''],
             'default_break' => ['Dodatkowa przerwa (minuty)', 'number', 'Domyślna wartość pola „Dodatkowa przerwa” w nowym dniu – zwykle 0.'],

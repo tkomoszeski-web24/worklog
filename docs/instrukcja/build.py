@@ -225,7 +225,7 @@ p(f'{B("Toggl Track (nieobowiązkowo)")} – jeśli czas mierzysz w Togglu, wpis
   f'czas, godzina „od” ze startu pierwszego wpisu; „do” wylicza się z czasu wiersza). Wpisy z tym samym ticketem i opisem łączą się w jeden wiersz, a ponowne kliknięcie nie dubluje '
   f'wierszy, tylko aktualizuje czas. Czas z Toggla jest zaokrąglany do najbliższej pełnej minuty (od 30 s w górę), a stoper aplikacji dalej liczy co do sekundy. Wpisy bez numeru ticketu aplikacja pomija i o tym informuje. Stoper, który w Togglu jeszcze działa, jest doliczany do chwili pobrania – po jego zatrzymaniu pobierz dzień ponownie. '
   f'Godziny „Od–Do” dnia ustawiają się z pierwszego i ostatniego wpisu w Togglu, chyba że je zmieniłeś ręcznie. '
-  f'Po pobraniu brakujące minuty (do progu z ustawienia „Domykanie czasu z Toggla do obecności”, domyślnie 5; 0 = wyłączone) są rozdzielane między wiersze, '
+  f'Po pobraniu brakujące minuty (do progu z pola Ustawienia → Toggl → „Domykanie czasu z Toggla do obecności”, domyślnie 5; 0 = wyłączone) są rozdzielane między wiersze, '
   f'żeby suma ticketów równała się obecności; większą różnicę (przerwa bez stopera, wpis bez ticketu) aplikacja zostawia widoczną. '
   f'Jeśli mierzysz wszystko w Togglu, przełącz bilans na czas w ticketach (Ustawienia → Dzień pracy, patrz rozdział 7). '
   f'Obok przycisku widać „pobrano o …”, a wiersze z Toggla mają przy tickecie małą ikonę.')
@@ -373,7 +373,7 @@ p('Na Windowsie długi mail (np. z długą listą ticketów) nie zmieści się w
 box('Wskazówka', 'Jeśli czas w ticketach różni się od czasu obecności (np. obecność 7h, a w ticketach jest 6h 30m), '
                  'panel Bilans pokaże żółte ostrzeżenie, a przypomnienie wspomni o brakującym czasie. Przy Togglu drobna różnica '
                  '(zaokrąglenia do pełnych minut, luki między zatrzymaniem a ponownym startem stopera) znika sama – import domyka czas '
-                 'wierszy do obecności, o ile różnica mieści się w progu z Ustawienia → Dzień pracy → „Domykanie czasu z Toggla” (domyślnie 5 minut). '
+                 'wierszy do obecności, o ile różnica mieści się w progu z Ustawienia → Toggl → „Domykanie czasu z Toggla” (domyślnie 5 minut). '
                  'Większa różnica to przerwa bez stopera albo wpis bez numeru ticketu (np. projekt „Przerwa”), którego import pominął – zostaje widoczna.')
 
 sub('Bilans z czasu w ticketach – tryb dla Toggla i stopera')
